@@ -1,0 +1,78 @@
+name: Build TR.SUB APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Find Android project
+        id: locate
+        shell: bash
+        run: |
+          echo "Searching for Gradle wrapper..."
+          find . -maxdepth 6 -type f \( -name gradlew -o -name gradlew.bat -o -name settings.gradle -o -name settings.gradle.kts \) -print
+
+          WRAPPER=$(find . -maxdepth 6 -type f -name gradlew | head -n 1)
+
+          if [ -n "$WRAPPER" ]; then
+            PROJECT_DIR=$(dirname "$WRAPPER")
+            echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+            echo "Found Gradle wrapper in $PROJECT_DIR"
+          else
+            echo "Gradle wrapper is missing. Checking for Gradle build files..."
+            SETTINGS=$(find . -maxdepth 6 -type f \( -name settings.gradle -o -name settings.gradle.kts \) | head -n 1)
+
+            if [ -z "$SETTINGS" ]; then
+              echo "ERROR: No Android Gradle project found."
+              echo "The project ZIP may have been uploaded without extracting it."
+              exit 1
+            fi
+
+            PROJECT_DIR=$(dirname "$SETTINGS")
+            echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+            echo "Found project in $PROJECT_DIR"
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build APK
+        working-directory: ${{ steps.locate.outputs.dir }}
+        shell: bash
+        run: |
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+            ./gradlew assembleDebug --stacktrace
+          else
+            echo "ERROR: Gradle wrapper is missing."
+            echo "This project needs its Gradle wrapper files before it can build."
+            exit 1
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TR-SUB-APK
+          path: '**/build/outputs/apk/debug/*.apk'
+          if-no-files-found: error
+          retention-days: 7
