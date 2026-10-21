@@ -17,25 +17,21 @@ jobs:
       - name: Download repository
         uses: actions/checkout@v4
 
-      - name: Install unzip
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y unzip
-
-      - name: Extract ZIP project automatically
+      - name: Extract ZIP automatically
         shell: bash
         run: |
           set -e
-
           mkdir -p extracted_project
 
-          ZIP_FILE=$(find . -type f -iname '*.zip' -not -path './.git/*' | head -n 1)
+          ZIP_FILE=$(find . -type f -iname '*.zip' \
+            -not -path './.git/*' \
+            -print -quit)
 
           if [ -n "$ZIP_FILE" ]; then
-            echo "Extracting project: $ZIP_FILE"
+            echo "Extracting $ZIP_FILE"
             unzip -o "$ZIP_FILE" -d extracted_project
           else
-            echo "No ZIP found. Checking repository files."
+            echo "No ZIP found; using existing project files."
           fi
 
       - name: Locate Android project
@@ -52,21 +48,16 @@ jobs:
             -print -quit)
 
           if [ -z "$SETTINGS" ]; then
-            echo "ERROR: No Android Gradle project found."
-            echo "Files available in repository:"
-            find . -maxdepth 5 -type f | head -n 150
+            echo "ERROR: Android project not found."
+            find . -maxdepth 5 -type f | head -n 100
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$SETTINGS")
-
-          echo "Project directory: $PROJECT_DIR"
           echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
-          if [ ! -f "$PROJECT_DIR/gradlew" ]; then
-            echo "ERROR: Gradle wrapper is missing."
-            exit 1
-          fi
+          echo "Project found: $PROJECT_DIR"
+          ls -la "$PROJECT_DIR"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -74,26 +65,27 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
         run: |
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Build APK
         working-directory: ${{ steps.locate.outputs.dir }}
-        shell: bash
         run: |
-          set -e
-          chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          gradle assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: TR-SUB-APK
-          path: |
-            **/build/outputs/apk/debug/*.apk
+          path: ${{ steps.locate.outputs.dir }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
