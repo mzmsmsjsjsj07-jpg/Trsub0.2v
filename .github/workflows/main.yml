@@ -21,6 +21,8 @@ jobs:
         shell: bash
         run: |
           set -e
+          sudo apt-get update
+          sudo apt-get install -y unzip
           mkdir -p extracted_project
 
           ZIP_FILE=$(find . -type f -iname '*.zip' \
@@ -28,10 +30,10 @@ jobs:
             -print -quit)
 
           if [ -n "$ZIP_FILE" ]; then
-            echo "Extracting $ZIP_FILE"
+            echo "Extracting project: $ZIP_FILE"
             unzip -o "$ZIP_FILE" -d extracted_project
           else
-            echo "No ZIP found; using existing project files."
+            echo "No ZIP found; checking repository files."
           fi
 
       - name: Locate Android project
@@ -48,14 +50,13 @@ jobs:
             -print -quit)
 
           if [ -z "$SETTINGS" ]; then
-            echo "ERROR: Android project not found."
-            find . -maxdepth 5 -type f | head -n 100
+            echo "ERROR: No Android Gradle project found."
+            find . -maxdepth 5 -type f | head -n 150
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$SETTINGS")
           echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-
           echo "Project found: $PROJECT_DIR"
           ls -la "$PROJECT_DIR"
 
@@ -72,20 +73,36 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ''
 
       - name: Install Android SDK packages
+        shell: bash
         run: |
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
 
       - name: Build APK
         working-directory: ${{ steps.locate.outputs.dir }}
+        shell: bash
         run: |
-          gradle assembleDebug --no-daemon --stacktrace
+          set -e
+
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+            ./gradlew assembleDebug --no-daemon --stacktrace
+          else
+            echo "Gradle wrapper is missing; using installed Gradle."
+            gradle assembleDebug --no-daemon --stacktrace
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: TR-SUB-APK
-          path: ${{ steps.locate.outputs.dir }}/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            **/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 7
